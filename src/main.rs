@@ -4,10 +4,11 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::thread;
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, atomic::{AtomicBool, Ordering}};
 use std::time::{Duration, Instant};
 
 use zeroize::{Zeroize, ZeroizeOnDrop};
+use ctrlc::set_handler;
 
 use html_server::server;
 
@@ -373,7 +374,10 @@ fn handle_client(
     // Use secure buffer that zeroizes on drop
     let mut secure_buffer = SecureBuffer::new(8192);
     
-    match stream.read(secure_buffer.as_mut_slice()) {
+    // Read request (handle WouldBlock in case stream is still non-blocking)
+    let read_result = stream.read(secure_buffer.as_mut_slice());
+    
+    match read_result {
         Ok(size) => {
             if size == 0 {
                 // Buffer will be zeroized on drop
@@ -532,7 +536,15 @@ fn handle_client(
             }
         }
         Err(e) => {
-            eprintln!("Error reading from stream: {}", e);
+            // Handle WouldBlock error (shouldn't happen with blocking stream, but handle gracefully)
+            if e.kind() == std::io::ErrorKind::WouldBlock {
+                // This shouldn't happen since we set the stream to blocking mode,
+                // but if it does, the connection is likely closed or in an invalid state
+                eprintln!("Unexpected WouldBlock error - connection may be closed");
+                return;
+            } else {
+                eprintln!("Error reading from stream: {}", e);
+            }
         }
     }
     
@@ -574,24 +586,77 @@ fn main() {
     let rate_limiter = Arc::new(RateLimiter::new());
     let connection_counter = Arc::new(ConnectionCounter::new());
     
-    println!("DarkHTTPd-style server listening on http://{}", address);
-    println!("Serving files from: {:?}", base_dir.canonicalize().unwrap_or(base_dir.clone()));
-    println!("Security features enabled:");
-    println!("  - Max concurrent connections: {}", MAX_CONCURRENT_CONNECTIONS);
-    println!("  - Connection timeout: {}s", CONNECTION_TIMEOUT_SECS);
-    println!("  - Request timeout: {}s", REQUEST_TIMEOUT_SECS);
-    println!("  - Rate limit: {} requests/minute per IP", MAX_REQUESTS_PER_MINUTE);
-    println!("Open http://localhost:8080 in your browser");
-    println!("Press Ctrl+C to stop the server");
+    // Shutdown flag for graceful exit
+    let shutdown_flag = Arc::new(AtomicBool::new(false));
+    let shutdown_flag_clone = Arc::clone(&shutdown_flag);
     
-    for stream in listener.incoming() {
-        match stream {
-            Ok(stream) => {
+    // Set up Ctrl+C handler
+    if let Err(e) = set_handler(move || {
+        println!("\n");
+        println!("⚠️  Shutdown signal received (Ctrl+C)");
+        println!("🔄 Shutting down gracefully...");
+        shutdown_flag_clone.store(true, Ordering::SeqCst);
+    }) {
+        eprintln!("Error setting Ctrl+C handler: {}", e);
+        std::process::exit(1);
+    }
+    
+    // Get a clean display path (remove Windows extended path prefix if present)
+    let display_path = base_dir.canonicalize()
+        .unwrap_or(base_dir.clone())
+        .to_string_lossy()
+        .replace("\\\\?\\", "")
+        .replace("\\", "/");
+    
+    println!("╔═══════════════════════════════════════════════════════════╗");
+    println!("║          Sindarin HTTP Server - Starting Up               ║");
+    println!("╚═══════════════════════════════════════════════════════════╝");
+    println!();
+    println!("🌐 Server:        http://{}", address);
+    println!("📁 Directory:     {}", display_path);
+    println!();
+    println!("🔒 Security Features:");
+    println!("   • Max connections:     {}", MAX_CONCURRENT_CONNECTIONS);
+    println!("   • Connection timeout:  {}s", CONNECTION_TIMEOUT_SECS);
+    println!("   • Request timeout:     {}s", REQUEST_TIMEOUT_SECS);
+    println!("   • Rate limit:           {} req/min per IP", MAX_REQUESTS_PER_MINUTE);
+    println!();
+    println!("💡 Open http://localhost:8080 in your browser");
+    println!("⌨️  Press Ctrl+C to stop the server");
+    println!();
+    
+    // Set non-blocking mode to allow checking shutdown flag
+    if let Err(e) = listener.set_nonblocking(true) {
+        eprintln!("Warning: Could not set non-blocking mode: {}", e);
+    }
+    
+    // Main server loop
+    loop {
+        // Check shutdown flag
+        if shutdown_flag.load(Ordering::SeqCst) {
+            println!("\n🛑 Shutdown signal received. Stopping new connections...");
+            break;
+        }
+        
+        match listener.accept() {
+            Ok((stream, addr)) => {
+                // Check shutdown flag again after accept
+                if shutdown_flag.load(Ordering::SeqCst) {
+                    println!("   ⚠️  Rejecting new connection from {} (shutdown in progress)", addr);
+                    let _ = stream.shutdown(std::net::Shutdown::Both);
+                    break;
+                }
+                
                 // Check connection limit
                 if !connection_counter.increment() {
-                    eprintln!("Connection limit reached, rejecting connection");
+                    eprintln!("Connection limit reached, rejecting connection from {}", addr);
                     let _ = stream.shutdown(std::net::Shutdown::Both);
                     continue;
+                }
+                
+                // Set stream to blocking mode (important: streams from non-blocking listener may inherit non-blocking)
+                if let Err(e) = stream.set_nonblocking(false) {
+                    eprintln!("Failed to set stream to blocking mode: {}", e);
                 }
                 
                 // Set connection timeout
@@ -611,8 +676,58 @@ fn main() {
                 });
             }
             Err(e) => {
-                eprintln!("Error accepting connection: {}", e);
+                // Check if it's WouldBlock (expected in non-blocking mode)
+                if e.kind() == std::io::ErrorKind::WouldBlock {
+                    // No connection available, sleep briefly and check shutdown flag
+                    thread::sleep(Duration::from_millis(100));
+                    continue;
+                } else if shutdown_flag.load(Ordering::SeqCst) {
+                    // Shutdown was requested, exit
+                    break;
+                } else {
+                    eprintln!("Error accepting connection: {}", e);
+                    // Brief sleep to avoid busy loop on persistent errors
+                    thread::sleep(Duration::from_millis(100));
+                }
             }
         }
     }
+    
+    // Graceful shutdown: wait for active connections to finish
+    println!("⏳ Waiting for active connections to finish (max {} seconds)...", CONNECTION_TIMEOUT_SECS);
+    let start_wait = Instant::now();
+    let max_wait = Duration::from_secs(CONNECTION_TIMEOUT_SECS);
+    
+    while start_wait.elapsed() < max_wait {
+        let active_connections = {
+            let count = connection_counter.count.lock().unwrap();
+            *count
+        };
+        
+        if active_connections == 0 {
+            println!("✅ All connections closed. Shutdown complete.");
+            break;
+        }
+        
+        if start_wait.elapsed().as_secs() % 2 == 0 {
+            println!("   ⏳ {} active connection(s) remaining...", active_connections);
+        }
+        
+        thread::sleep(Duration::from_millis(500));
+    }
+    
+    let final_connections = {
+        let count = connection_counter.count.lock().unwrap();
+        *count
+    };
+    
+    if final_connections > 0 {
+        println!("⚠️  Warning: {} connection(s) were still active after timeout. Forcing shutdown.", final_connections);
+    }
+    
+    // Clean up rate limiter
+    rate_limiter.cleanup();
+    
+    println!();
+    println!("👋 Server stopped. Goodbye!");
 }

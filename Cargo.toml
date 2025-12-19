@@ -14,4 +14,5 @@ path = "src/main.rs"
 [dependencies]
 zeroize = { version = "1.7", features = ["zeroize_derive"] }
 secrecy = { version = "0.8", features = ["alloc", "serde"] }
+ctrlc = "3.4"
 
