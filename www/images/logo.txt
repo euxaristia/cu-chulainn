@@ -1,0 +1,3 @@
+This is a placeholder for a logo image file.
+In a real website, this would be logo.png or logo.svg
+
