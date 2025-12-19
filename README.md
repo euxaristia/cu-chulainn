@@ -99,7 +99,7 @@ cargo build --release
 Start the server with the default directory (`www/`):
 
 ```bash
-server
+cu-chulainn
 ```
 
 The server will listen on `http://127.0.0.1:8080` and serve files from the `www/` directory.
@@ -109,20 +109,46 @@ The server will listen on `http://127.0.0.1:8080` and serve files from the `www/
 Specify a custom directory to serve:
 
 ```bash
-server /path/to/your/files
+cu-chulainn /path/to/your/files
 ```
+
+### Configurable Limits
+
+The server supports configurable limits for handling more concurrent requests:
+
+```bash
+# Increase maximum concurrent connections (default: 100)
+cu-chulainn --max-connections 500
+
+# Increase rate limit per IP (default: 60 requests/minute)
+cu-chulainn --rate-limit 120
+
+# Combine options with custom directory
+cu-chulainn --max-connections 1000 --rate-limit 200 ./public
+```
+
+**Options:**
+- `--max-connections <N>` - Maximum concurrent connections (default: 100)
+- `--rate-limit <N>` - Maximum requests per minute per IP (default: 60)
+- `-h, --help` - Show help message
 
 ### Examples
 
 ```bash
 # Serve files from current directory
-server .
+cu-chulainn .
 
 # Serve files from a specific directory
-server /var/www/html
+cu-chulainn /var/www/html
 
 # Serve files from a relative path
-server ./public
+cu-chulainn ./public
+
+# High-traffic configuration
+cu-chulainn --max-connections 1000 --rate-limit 300 /var/www/html
+
+# Development with relaxed limits
+cu-chulainn --max-connections 50 --rate-limit 200 www/
 ```
 
 ## CONFIGURATION
@@ -131,10 +157,14 @@ server ./public
 
 - **Listen Address:** `127.0.0.1:8080`
 - **Base Directory:** `www/` (or first command-line argument)
+- **Maximum Concurrent Connections:** 100 (configurable via `--max-connections`)
+- **Rate Limit:** 60 requests/minute per IP (configurable via `--rate-limit`)
 - **Maximum File Size:** 100 MB
 - **Request Buffer Size:** 8 KB
 - **Maximum Path Length:** 4096 characters
 - **Maximum Path Components:** 100
+- **Connection Timeout:** 30 seconds
+- **Request Timeout:** 10 seconds
 
 ### Port Conflicts
 
@@ -157,6 +187,23 @@ lsof -i :8080
 # Kill the process
 kill -9 <PID>
 ```
+
+### Handling More Concurrent Requests
+
+If you need to handle more concurrent requests, you can increase the limits:
+
+```bash
+# For high-traffic scenarios (e.g., 500 concurrent connections, 200 req/min per IP)
+cu-chulainn --max-connections 500 --rate-limit 200 /var/www/html
+
+# For development/testing with relaxed limits
+cu-chulainn --max-connections 50 --rate-limit 200 www/
+
+# Production with maximum capacity
+cu-chulainn --max-connections 2000 --rate-limit 500 /var/www/html
+```
+
+**Note:** Increasing these limits will use more system resources (memory, threads). Monitor your system to ensure it can handle the load. The default limits provide a good balance between performance and resource usage.
 
 ## HTTP METHODS
 

@@ -237,12 +237,14 @@ impl Zeroize for SecureBuffer {
 // Rate limiting structure with secure cleanup
 struct RateLimiter {
     requests: Arc<Mutex<HashMap<String, Vec<Instant>>>>,
+    max_requests_per_minute: usize,
 }
 
 impl RateLimiter {
-    fn new() -> Self {
+    fn new(max_requests_per_minute: usize) -> Self {
         Self {
             requests: Arc::new(Mutex::new(HashMap::new())),
+            max_requests_per_minute,
         }
     }
 
@@ -261,7 +263,7 @@ impl RateLimiter {
         let entry = requests.entry(ip.to_string()).or_insert_with(Vec::new);
         
         // Check if rate limit exceeded
-        if entry.len() >= MAX_REQUESTS_PER_MINUTE as usize {
+        if entry.len() >= self.max_requests_per_minute {
             return false;
         }
         
@@ -283,18 +285,20 @@ impl RateLimiter {
 // Connection counter
 struct ConnectionCounter {
     count: Arc<Mutex<usize>>,
+    max_connections: usize,
 }
 
 impl ConnectionCounter {
-    fn new() -> Self {
+    fn new(max_connections: usize) -> Self {
         Self {
             count: Arc::new(Mutex::new(0)),
+            max_connections,
         }
     }
 
     fn increment(&self) -> bool {
         let mut count = self.count.lock().unwrap();
-        if *count >= MAX_CONCURRENT_CONNECTIONS {
+        if *count >= self.max_connections {
             return false;
         }
         *count += 1;
@@ -608,17 +612,91 @@ fn handle_client(
     // Connection counter will be decremented automatically by ConnectionGuard
 }
 
+// Parse command-line arguments
+fn parse_args() -> (PathBuf, usize, u32) {
+    let args: Vec<String> = std::env::args().collect();
+    let program_name = args.get(0).map(|s| s.as_str()).unwrap_or("cu-chulainn");
+    
+    let mut base_dir = PathBuf::from("www");
+    let mut max_connections = MAX_CONCURRENT_CONNECTIONS;
+    let mut max_requests_per_minute = MAX_REQUESTS_PER_MINUTE;
+    
+    let mut i = 1;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--help" | "-h" => {
+                println!("Usage: {} [OPTIONS] [base_directory]", program_name);
+                println!();
+                println!("Options:");
+                println!("  --max-connections <N>     Maximum concurrent connections (default: {})", MAX_CONCURRENT_CONNECTIONS);
+                println!("  --rate-limit <N>          Maximum requests per minute per IP (default: {})", MAX_REQUESTS_PER_MINUTE);
+                println!("  -h, --help                Show this help message");
+                println!();
+                println!("Arguments:");
+                println!("  base_directory            Directory to serve (default: www/)");
+                println!();
+                println!("Examples:");
+                println!("  {}                        # Serve www/ with default limits", program_name);
+                println!("  {} /var/www/html          # Serve custom directory", program_name);
+                println!("  {} --max-connections 500  # Allow 500 concurrent connections", program_name);
+                println!("  {} --rate-limit 120       # Allow 120 requests/min per IP", program_name);
+                println!("  {} --max-connections 1000 --rate-limit 200 ./public  # All options", program_name);
+                std::process::exit(0);
+            }
+            "--max-connections" => {
+                i += 1;
+                if i >= args.len() {
+                    eprintln!("Error: --max-connections requires a value");
+                    std::process::exit(1);
+                }
+                max_connections = args[i].parse().unwrap_or_else(|_| {
+                    eprintln!("Error: Invalid value for --max-connections: '{}'", args[i]);
+                    std::process::exit(1);
+                });
+                if max_connections == 0 {
+                    eprintln!("Error: --max-connections must be greater than 0");
+                    std::process::exit(1);
+                }
+            }
+            "--rate-limit" => {
+                i += 1;
+                if i >= args.len() {
+                    eprintln!("Error: --rate-limit requires a value");
+                    std::process::exit(1);
+                }
+                max_requests_per_minute = args[i].parse().unwrap_or_else(|_| {
+                    eprintln!("Error: Invalid value for --rate-limit: '{}'", args[i]);
+                    std::process::exit(1);
+                });
+                if max_requests_per_minute == 0 {
+                    eprintln!("Error: --rate-limit must be greater than 0");
+                    std::process::exit(1);
+                }
+            }
+            arg if arg.starts_with('-') => {
+                eprintln!("Error: Unknown option: '{}'", arg);
+                eprintln!("Use --help for usage information");
+                std::process::exit(1);
+            }
+            _ => {
+                // Positional argument: base directory
+                base_dir = PathBuf::from(&args[i]);
+            }
+        }
+        i += 1;
+    }
+    
+    (base_dir, max_connections, max_requests_per_minute)
+}
+
 fn main() {
-    // Get base directory from command line or use default
-    let base_dir = std::env::args()
-        .nth(1)
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("www"));
+    // Parse command-line arguments
+    let (base_dir, max_connections, max_requests_per_minute) = parse_args();
     
     // Ensure base directory exists
     if !base_dir.exists() {
         eprintln!("Error: Base directory '{:?}' does not exist", base_dir);
-        eprintln!("Usage: {} [base_directory]", std::env::args().next().unwrap_or_default());
+        eprintln!("Use --help for usage information");
         std::process::exit(1);
     }
     
@@ -637,9 +715,9 @@ fn main() {
         }
     };
     
-    // Initialize rate limiter and connection counter
-    let rate_limiter = Arc::new(RateLimiter::new());
-    let connection_counter = Arc::new(ConnectionCounter::new());
+    // Initialize rate limiter and connection counter with configurable limits
+    let rate_limiter = Arc::new(RateLimiter::new(max_requests_per_minute as usize));
+    let connection_counter = Arc::new(ConnectionCounter::new(max_connections));
     
     // Shutdown flag for graceful exit
     let shutdown_flag = Arc::new(AtomicBool::new(false));
@@ -671,10 +749,10 @@ fn main() {
     println!("  📁 Directory:     {}", display_path);
     println!();
     println!("  🔒 Security Features:");
-    println!("     • Max connections:     {}", MAX_CONCURRENT_CONNECTIONS);
+    println!("     • Max connections:     {}", max_connections);
     println!("     • Connection timeout:  {}s", CONNECTION_TIMEOUT_SECS);
     println!("     • Request timeout:     {}s", REQUEST_TIMEOUT_SECS);
-    println!("     • Rate limit:           {} req/min per IP", MAX_REQUESTS_PER_MINUTE);
+    println!("     • Rate limit:           {} req/min per IP", max_requests_per_minute);
     println!();
     println!("  💡 Open http://localhost:8080 in your browser");
     println!("  ⌨️  Press Ctrl+C to stop the server");
