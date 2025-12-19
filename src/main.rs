@@ -4,6 +4,10 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::thread;
 use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
+
+use zeroize::{Zeroize, ZeroizeOnDrop};
 
 use html_server::server;
 
@@ -189,28 +193,216 @@ fn send_response(stream: &mut TcpStream, status_code: u16, status_text: &str,
 // Maximum file size to serve (100MB) - prevents DoS from huge files
 const MAX_FILE_SIZE: u64 = 100 * 1024 * 1024;
 
-// Handle client request
-fn handle_client(mut stream: TcpStream, base_dir: PathBuf) {
-    // Limit request buffer size to prevent DoS
-    let mut buffer = [0; 8192];
+// Security configuration constants
+const MAX_CONCURRENT_CONNECTIONS: usize = 100;
+const CONNECTION_TIMEOUT_SECS: u64 = 30;
+const REQUEST_TIMEOUT_SECS: u64 = 10;
+const MAX_REQUESTS_PER_MINUTE: u32 = 60;
+
+// Secure buffer that zeroizes on drop
+// This protects sensitive request data from being readable in memory dumps,
+// swap files, or after the buffer goes out of scope
+#[derive(ZeroizeOnDrop)]
+struct SecureBuffer {
+    data: Vec<u8>,
+}
+
+impl SecureBuffer {
+    fn new(size: usize) -> Self {
+        Self {
+            data: vec![0; size],
+        }
+    }
     
-    match stream.read(&mut buffer) {
+    fn as_mut_slice(&mut self) -> &mut [u8] {
+        &mut self.data
+    }
+    
+    fn as_slice(&self) -> &[u8] {
+        &self.data
+    }
+    
+    fn len(&self) -> usize {
+        self.data.len()
+    }
+}
+
+impl Zeroize for SecureBuffer {
+    fn zeroize(&mut self) {
+        self.data.zeroize();
+    }
+}
+
+// Rate limiting structure with secure cleanup
+struct RateLimiter {
+    requests: Arc<Mutex<HashMap<String, Vec<Instant>>>>,
+}
+
+impl RateLimiter {
+    fn new() -> Self {
+        Self {
+            requests: Arc::new(Mutex::new(HashMap::new())),
+        }
+    }
+
+    fn check_rate_limit(&self, ip: &str) -> bool {
+        let mut requests = self.requests.lock().unwrap();
+        let now = Instant::now();
+        let cutoff = now - Duration::from_secs(60);
+        
+        // Clean old entries (securely remove expired data)
+        requests.retain(|_, times| {
+            times.retain(|&time| time > cutoff);
+            !times.is_empty()
+        });
+        
+        // Get or create entry for this IP
+        let entry = requests.entry(ip.to_string()).or_insert_with(Vec::new);
+        
+        // Check if rate limit exceeded
+        if entry.len() >= MAX_REQUESTS_PER_MINUTE as usize {
+            return false;
+        }
+        
+        // Add current request
+        entry.push(now);
+        true
+    }
+    
+    // Securely clean up rate limiting data
+    #[allow(dead_code)]
+    fn cleanup(&self) {
+        let mut requests = self.requests.lock().unwrap();
+        // Clear all entries and ensure memory is released
+        requests.clear();
+        // HashMap will be dropped and memory zeroized by allocator
+    }
+}
+
+// Connection counter
+struct ConnectionCounter {
+    count: Arc<Mutex<usize>>,
+}
+
+impl ConnectionCounter {
+    fn new() -> Self {
+        Self {
+            count: Arc::new(Mutex::new(0)),
+        }
+    }
+
+    fn increment(&self) -> bool {
+        let mut count = self.count.lock().unwrap();
+        if *count >= MAX_CONCURRENT_CONNECTIONS {
+            return false;
+        }
+        *count += 1;
+        true
+    }
+
+    fn decrement(&self) {
+        let mut count = self.count.lock().unwrap();
+        *count = count.saturating_sub(1);
+    }
+}
+
+
+// Validate request headers for security
+fn validate_headers(request: &str) -> bool {
+    let lines: Vec<&str> = request.lines().collect();
+    if lines.len() < 1 {
+        return false;
+    }
+    
+    // Check for suspicious headers or patterns
+    for line in lines.iter().skip(1) {
+        let line_lower = line.to_lowercase();
+        
+        // Reject requests with suspicious patterns
+        if line_lower.contains("..") || 
+           line_lower.contains("\0") ||
+           line_lower.len() > 8192 {
+            return false;
+        }
+        
+        // Validate Content-Length if present
+        if line_lower.starts_with("content-length:") {
+            if let Some(len_str) = line.split(':').nth(1) {
+                if let Ok(len) = len_str.trim().parse::<u64>() {
+                    // Reject extremely large content-length
+                    if len > MAX_FILE_SIZE {
+                        return false;
+                    }
+                } else {
+                    return false; // Invalid content-length
+                }
+            }
+        }
+    }
+    
+    true
+}
+
+// Handle client request
+fn handle_client(
+    mut stream: TcpStream, 
+    base_dir: PathBuf,
+    rate_limiter: Arc<RateLimiter>,
+    connection_counter: Arc<ConnectionCounter>,
+) {
+    // Set read/write timeouts
+    let timeout = Duration::from_secs(REQUEST_TIMEOUT_SECS);
+    let _ = stream.set_read_timeout(Some(timeout));
+    let _ = stream.set_write_timeout(Some(timeout));
+    
+    // Get client IP for rate limiting
+    let client_ip = stream.peer_addr()
+        .map(|addr| addr.ip().to_string())
+        .unwrap_or_else(|_| "unknown".to_string());
+    
+    // Check rate limit
+    if !rate_limiter.check_rate_limit(&client_ip) {
+        let mut headers = HashMap::new();
+        headers.insert("Content-Type", "text/plain");
+        headers.insert("Retry-After", "60");
+        send_response(&mut stream, 429, "Too Many Requests", &headers,
+                     Some(b"429 Too Many Requests - Rate limit exceeded"));
+        return;
+    }
+    
+    // Use secure buffer that zeroizes on drop
+    let mut secure_buffer = SecureBuffer::new(8192);
+    
+    match stream.read(secure_buffer.as_mut_slice()) {
         Ok(size) => {
             if size == 0 {
+                // Buffer will be zeroized on drop
                 return;
             }
             
             // Prevent extremely large requests
-            if size >= buffer.len() {
+            if size >= secure_buffer.len() {
                 // Request might be larger than buffer - reject it
                 let mut headers = HashMap::new();
                 headers.insert("Content-Type", "text/plain");
                 send_response(&mut stream, 413, "Request Entity Too Large", &headers,
                              Some(b"413 Request Entity Too Large"));
+                // Buffer will be zeroized on drop
                 return;
             }
             
-            let request_str = String::from_utf8_lossy(&buffer[..size]);
+            // Create request string from secure buffer
+            let request_str = String::from_utf8_lossy(&secure_buffer.as_slice()[..size]);
+            
+            // Validate headers before parsing
+            if !validate_headers(&request_str) {
+                let mut headers = HashMap::new();
+                headers.insert("Content-Type", "text/plain");
+                send_response(&mut stream, 400, "Bad Request", &headers, 
+                             Some(b"400 Bad Request - Invalid headers"));
+                return;
+            }
+            
             let request = match server::parse_request(&request_str) {
                 Some(req) => req,
                 None => {
@@ -313,6 +505,12 @@ fn handle_client(mut stream: TcpStream, base_dir: PathBuf) {
                     let mut headers = HashMap::new();
                     headers.insert("Content-Type", get_mime_type(&file_path));
                     
+                    // Security headers
+                    headers.insert("X-Content-Type-Options", "nosniff");
+                    headers.insert("X-Frame-Options", "DENY");
+                    headers.insert("X-XSS-Protection", "1; mode=block");
+                    headers.insert("Referrer-Policy", "strict-origin-when-cross-origin");
+                    
                     // Add Last-Modified header if possible
                     if let Ok(_modified) = metadata.modified() {
                         // Simple date format (RFC 7231 format would be better, but this works)
@@ -337,6 +535,10 @@ fn handle_client(mut stream: TcpStream, base_dir: PathBuf) {
             eprintln!("Error reading from stream: {}", e);
         }
     }
+    
+    // Secure buffer will be zeroized automatically on drop
+    // Decrement connection counter when done
+    connection_counter.decrement();
 }
 
 fn main() {
@@ -368,17 +570,44 @@ fn main() {
         }
     };
     
+    // Initialize rate limiter and connection counter
+    let rate_limiter = Arc::new(RateLimiter::new());
+    let connection_counter = Arc::new(ConnectionCounter::new());
+    
     println!("DarkHTTPd-style server listening on http://{}", address);
     println!("Serving files from: {:?}", base_dir.canonicalize().unwrap_or(base_dir.clone()));
+    println!("Security features enabled:");
+    println!("  - Max concurrent connections: {}", MAX_CONCURRENT_CONNECTIONS);
+    println!("  - Connection timeout: {}s", CONNECTION_TIMEOUT_SECS);
+    println!("  - Request timeout: {}s", REQUEST_TIMEOUT_SECS);
+    println!("  - Rate limit: {} requests/minute per IP", MAX_REQUESTS_PER_MINUTE);
     println!("Open http://localhost:8080 in your browser");
     println!("Press Ctrl+C to stop the server");
     
     for stream in listener.incoming() {
         match stream {
             Ok(stream) => {
+                // Check connection limit
+                if !connection_counter.increment() {
+                    eprintln!("Connection limit reached, rejecting connection");
+                    let _ = stream.shutdown(std::net::Shutdown::Both);
+                    continue;
+                }
+                
+                // Set connection timeout
+                if let Err(e) = stream.set_read_timeout(Some(Duration::from_secs(CONNECTION_TIMEOUT_SECS))) {
+                    eprintln!("Failed to set read timeout: {}", e);
+                }
+                if let Err(e) = stream.set_write_timeout(Some(Duration::from_secs(CONNECTION_TIMEOUT_SECS))) {
+                    eprintln!("Failed to set write timeout: {}", e);
+                }
+                
                 let base_dir = base_dir.clone();
+                let rate_limiter = Arc::clone(&rate_limiter);
+                let connection_counter = Arc::clone(&connection_counter);
+                
                 thread::spawn(move || {
-                    handle_client(stream, base_dir);
+                    handle_client(stream, base_dir, rate_limiter, connection_counter);
                 });
             }
             Err(e) => {

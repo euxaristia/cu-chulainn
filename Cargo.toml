@@ -11,3 +11,7 @@ path = "src/lib.rs"
 name = "server"
 path = "src/main.rs"
 
+[dependencies]
+zeroize = { version = "1.7", features = ["zeroize_derive"] }
+secrecy = { version = "0.8", features = ["alloc", "serde"] }
+
