@@ -41,6 +41,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cu-chulainn"
+version = "0.1.0"
+dependencies = [
+ "ctrlc",
+ "zeroize",
+]
+
+[[package]]
 name = "dispatch2"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -50,14 +58,6 @@ dependencies = [
  "block2",
  "libc",
  "objc2",
-]
-
-[[package]]
-name = "html-server"
-version = "0.1.0"
-dependencies = [
- "ctrlc",
- "zeroize",
 ]
 
 [[package]]

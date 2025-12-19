@@ -11,7 +11,7 @@ fuzz_target!(|data: &[u8]| {
         }
         
         // Test HTTP request parsing with fuzzed input
-        let _ = html_server::server::parse_request(request_str);
+        let _ = cu_chulainn::server::parse_request(request_str);
     }
 });
 

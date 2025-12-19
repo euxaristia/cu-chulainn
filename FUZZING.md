@@ -1,4 +1,4 @@
-# Fuzzing Guide for Sindarin HTTP Server
+# Fuzzing Guide for Cú Chulainn HTTP Server
 
 ## Overview
 
@@ -200,7 +200,7 @@ cargo fuzz cmin fuzz_path_normalization fuzz/corpus/other/
 1. **Use WSL2** (recommended):
    ```bash
    wsl
-   cd /mnt/c/Users/.../Sindarin
+   cd /mnt/c/Users/.../cu-chulainn
    cargo fuzz run fuzz_path_normalization
    ```
 

@@ -1,14 +1,14 @@
 [package]
-name = "html-server"
+name = "cu-chulainn"
 version = "0.1.0"
 edition = "2021"
 
 [lib]
-name = "html_server"
+name = "cu_chulainn"
 path = "src/lib.rs"
 
 [[bin]]
-name = "server"
+name = "cu-chulainn"
 path = "src/main.rs"
 
 [dependencies]

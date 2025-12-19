@@ -21,7 +21,7 @@ fuzz_target!(|data: &[u8]| {
         
         // Test path normalization with fuzzed input
         // This should never panic - if it does, the fuzzer will catch it
-        let _ = html_server::server::normalize_path(base_dir, path_str);
+        let _ = cu_chulainn::server::normalize_path(base_dir, path_str);
     }
     
     // Also test with raw bytes (non-UTF-8) - should handle gracefully
@@ -40,5 +40,5 @@ fuzz_target!(|data: &[u8]| {
         Err(_) => return,
     };
     
-    let _ = html_server::server::normalize_path(temp_dir.path(), &path_str);
+    let _ = cu_chulainn::server::normalize_path(temp_dir.path(), &path_str);
 });

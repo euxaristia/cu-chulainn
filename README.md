@@ -1,6 +1,6 @@
-# Sindarin
+# Cú Chulainn
 
-![Rust](https://github.com/euxaristia/Sindarin/workflows/Rust/badge.svg)
+![Rust](https://github.com/euxaristia/cu-chulainn/workflows/Rust/badge.svg)
 
 **A minimal, secure HTTP server for static file serving**
 
@@ -9,12 +9,12 @@
 ## SYNOPSIS
 
 ```
-sindarin [directory]
+cu-chulainn [directory]
 ```
 
 ## DESCRIPTION
 
-`Sindarin` is a lightweight, production-ready HTTP server designed for serving static files. Built with Rust for memory safety and performance, it provides a secure alternative to traditional static file servers with comprehensive security features and robust error handling.
+`Cú Chulainn` is a lightweight, production-ready HTTP server designed for serving static files. Built with Rust for memory safety and performance, it provides a secure alternative to traditional static file servers with comprehensive security features and robust error handling.
 
 The server implements a darkhttpd-style architecture with enhanced security protections, including path traversal prevention, DoS mitigation, and comprehensive input validation. It automatically serves `index.html` files in directories and generates clean directory listings when no index file is present.
 
@@ -71,14 +71,14 @@ The server implements a darkhttpd-style architecture with enhanced security prot
 ```bash
 # Clone the repository
 git clone <repository-url>
-cd Sindarin
+cd cu-chulainn
 
 # Build the project
 cargo build --release
 
 # The binary will be available at:
-# target/release/Sindarin.exe (Windows)
-# target/release/sindarin (Unix-like)
+# target/release/cu-chulainn.exe (Windows)
+# target/release/cu-chulainn (Unix-like)
 ```
 
 ### Quick Start
@@ -89,7 +89,7 @@ cargo run
 
 # Or build release version
 cargo build --release
-./target/release/sindarin
+./target/release/cu-chulainn
 ```
 
 ## USAGE
@@ -272,7 +272,7 @@ All user input is validated and sanitized:
 ## DIRECTORY STRUCTURE
 
 ```
-Sindarin/
+cu-chulainn/
 ├── Cargo.toml          # Project configuration
 ├── Cargo.lock          # Dependency lock file
 ├── README.md           # This file

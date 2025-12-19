@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 use zeroize::{Zeroize, ZeroizeOnDrop};
 use ctrlc::set_handler;
 
-use html_server::server;
+use cu_chulainn::server;
 
 // MIME type mappings
 fn get_mime_type(path: &Path) -> &'static str {
@@ -663,21 +663,21 @@ fn main() {
         .replace("\\\\?\\", "")
         .replace("\\", "/");
     
-    println!("╔═══════════════════════════════════════════════════════════╗");
-    println!("║          Sindarin HTTP Server - Starting Up               ║");
-    println!("╚═══════════════════════════════════════════════════════════╝");
+    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+    println!("  Cú Chulainn HTTP Server");
+    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
     println!();
-    println!("🌐 Server:        http://{}", address);
-    println!("📁 Directory:     {}", display_path);
+    println!("  🌐 Server:        http://{}", address);
+    println!("  📁 Directory:     {}", display_path);
     println!();
-    println!("🔒 Security Features:");
-    println!("   • Max connections:     {}", MAX_CONCURRENT_CONNECTIONS);
-    println!("   • Connection timeout:  {}s", CONNECTION_TIMEOUT_SECS);
-    println!("   • Request timeout:     {}s", REQUEST_TIMEOUT_SECS);
-    println!("   • Rate limit:           {} req/min per IP", MAX_REQUESTS_PER_MINUTE);
+    println!("  🔒 Security Features:");
+    println!("     • Max connections:     {}", MAX_CONCURRENT_CONNECTIONS);
+    println!("     • Connection timeout:  {}s", CONNECTION_TIMEOUT_SECS);
+    println!("     • Request timeout:     {}s", REQUEST_TIMEOUT_SECS);
+    println!("     • Rate limit:           {} req/min per IP", MAX_REQUESTS_PER_MINUTE);
     println!();
-    println!("💡 Open http://localhost:8080 in your browser");
-    println!("⌨️  Press Ctrl+C to stop the server");
+    println!("  💡 Open http://localhost:8080 in your browser");
+    println!("  ⌨️  Press Ctrl+C to stop the server");
     println!();
     
     // Set non-blocking mode to allow checking shutdown flag

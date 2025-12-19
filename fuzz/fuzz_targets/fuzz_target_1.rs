@@ -14,19 +14,19 @@ fuzz_target!(|data: &[u8]| {
         }
         
         // Test 1: HTTP request parsing
-        let _ = html_server::server::parse_request(input_str);
+        let _ = cu_chulainn::server::parse_request(input_str);
         
         // Test 2: URL decoding
-        let _ = html_server::server::url_decode(input_str);
+        let _ = cu_chulainn::server::url_decode(input_str);
         
         // Test 3: Path normalization (if we can extract a path)
-        if let Some(request) = html_server::server::parse_request(input_str) {
+        if let Some(request) = cu_chulainn::server::parse_request(input_str) {
             let temp_dir = match TempDir::new() {
                 Ok(dir) => dir,
                 Err(_) => return,
             };
             
-            let _ = html_server::server::normalize_path(temp_dir.path(), &request.path);
+            let _ = cu_chulainn::server::normalize_path(temp_dir.path(), &request.path);
         }
     }
 });

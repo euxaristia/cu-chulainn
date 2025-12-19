@@ -11,7 +11,7 @@ fuzz_target!(|data: &[u8]| {
         }
         
         // Test URL decoding with fuzzed input
-        let _ = html_server::server::url_decode(url_str);
+        let _ = cu_chulainn::server::url_decode(url_str);
     }
 });
 
