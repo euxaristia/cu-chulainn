@@ -1,5 +1,7 @@
 # server
 
+![Rust](https://github.com/YOUR_USERNAME/YOUR_REPO/workflows/Rust/badge.svg)
+
 **A minimal, secure HTTP server for static file serving**
 
 ---
@@ -7,12 +9,12 @@
 ## SYNOPSIS
 
 ```
-server [directory]
+sindarin [directory]
 ```
 
 ## DESCRIPTION
 
-`server` is a lightweight, production-ready HTTP server designed for serving static files. Built with Rust for memory safety and performance, it provides a secure alternative to traditional static file servers with comprehensive security features and robust error handling.
+`Sindarin` is a lightweight, production-ready HTTP server designed for serving static files. Built with Rust for memory safety and performance, it provides a secure alternative to traditional static file servers with comprehensive security features and robust error handling.
 
 The server implements a darkhttpd-style architecture with enhanced security protections, including path traversal prevention, DoS mitigation, and comprehensive input validation. It automatically serves `index.html` files in directories and generates clean directory listings when no index file is present.
 
