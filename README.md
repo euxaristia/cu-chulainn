@@ -77,8 +77,8 @@ cd Sindarin
 cargo build --release
 
 # The binary will be available at:
-# target/release/server.exe (Windows)
-# target/release/server (Unix-like)
+# target/release/Sindarin.exe (Windows)
+# target/release/sindarin (Unix-like)
 ```
 
 ### Quick Start
@@ -89,7 +89,7 @@ cargo run
 
 # Or build release version
 cargo build --release
-./target/release/server
+./target/release/sindarin
 ```
 
 ## USAGE
