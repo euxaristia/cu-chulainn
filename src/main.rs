@@ -305,6 +305,28 @@ impl ConnectionCounter {
         let mut count = self.count.lock().unwrap();
         *count = count.saturating_sub(1);
     }
+    
+    fn get(&self) -> usize {
+        let count = self.count.lock().unwrap();
+        *count
+    }
+}
+
+// Guard to ensure connection counter is decremented when connection handler exits
+struct ConnectionGuard {
+    counter: Arc<ConnectionCounter>,
+}
+
+impl ConnectionGuard {
+    fn new(counter: Arc<ConnectionCounter>) -> Self {
+        Self { counter }
+    }
+}
+
+impl Drop for ConnectionGuard {
+    fn drop(&mut self) {
+        self.counter.decrement();
+    }
 }
 
 
@@ -351,6 +373,9 @@ fn handle_client(
     rate_limiter: Arc<RateLimiter>,
     connection_counter: Arc<ConnectionCounter>,
 ) {
+    // Create guard to ensure counter is decremented on any exit path
+    let _guard = ConnectionGuard::new(Arc::clone(&connection_counter));
+    
     // Set read/write timeouts
     let timeout = Duration::from_secs(REQUEST_TIMEOUT_SECS);
     let _ = stream.set_read_timeout(Some(timeout));
@@ -536,21 +561,51 @@ fn handle_client(
             }
         }
         Err(e) => {
-            // Handle WouldBlock error (shouldn't happen with blocking stream, but handle gracefully)
-            if e.kind() == std::io::ErrorKind::WouldBlock {
-                // This shouldn't happen since we set the stream to blocking mode,
-                // but if it does, the connection is likely closed or in an invalid state
-                eprintln!("Unexpected WouldBlock error - connection may be closed");
-                return;
-            } else {
-                eprintln!("Error reading from stream: {}", e);
+            // Handle common network errors gracefully (these are normal, not real errors)
+            match e.kind() {
+                std::io::ErrorKind::WouldBlock => {
+                    // This shouldn't happen since we set the stream to blocking mode,
+                    // but if it does, the connection is likely closed or in an invalid state
+                    return;
+                }
+                std::io::ErrorKind::TimedOut => {
+                    // Connection timed out - normal network event, no need to log
+                    return;
+                }
+                std::io::ErrorKind::ConnectionAborted => {
+                    // Connection was aborted by client - normal, no need to log
+                    return;
+                }
+                std::io::ErrorKind::ConnectionReset => {
+                    // Connection was reset by peer - normal, no need to log
+                    return;
+                }
+                std::io::ErrorKind::BrokenPipe => {
+                    // Broken pipe - client disconnected - normal, no need to log
+                    return;
+                }
+                std::io::ErrorKind::UnexpectedEof => {
+                    // Unexpected EOF - client disconnected - normal, no need to log
+                    return;
+                }
+                _ => {
+                    // Only log unexpected errors
+                    // Check if it's a Windows timeout error (10060) by error message
+                    let error_msg = e.to_string();
+                    if error_msg.contains("10060") || error_msg.contains("timed out") || 
+                       error_msg.contains("did not properly respond") {
+                        // Windows timeout error - normal, don't log
+                        return;
+                    }
+                    // Log only truly unexpected errors
+                    eprintln!("Unexpected error reading from stream: {}", e);
+                }
             }
         }
     }
     
     // Secure buffer will be zeroized automatically on drop
-    // Decrement connection counter when done
-    connection_counter.decrement();
+    // Connection counter will be decremented automatically by ConnectionGuard
 }
 
 fn main() {
@@ -699,10 +754,7 @@ fn main() {
     let max_wait = Duration::from_secs(CONNECTION_TIMEOUT_SECS);
     
     while start_wait.elapsed() < max_wait {
-        let active_connections = {
-            let count = connection_counter.count.lock().unwrap();
-            *count
-        };
+        let active_connections = connection_counter.get();
         
         if active_connections == 0 {
             println!("✅ All connections closed. Shutdown complete.");
@@ -716,10 +768,7 @@ fn main() {
         thread::sleep(Duration::from_millis(500));
     }
     
-    let final_connections = {
-        let count = connection_counter.count.lock().unwrap();
-        *count
-    };
+    let final_connections = connection_counter.get();
     
     if final_connections > 0 {
         println!("⚠️  Warning: {} connection(s) were still active after timeout. Forcing shutdown.", final_connections);
