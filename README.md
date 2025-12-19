@@ -70,7 +70,7 @@ The server implements a darkhttpd-style architecture with enhanced security prot
 
 ```bash
 # Clone the repository
-git clone <repository-url>
+git clone https://github.com/euxaristia/cu-chulainn
 cd cu-chulainn
 
 # Build the project
