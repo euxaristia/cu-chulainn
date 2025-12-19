@@ -20,7 +20,25 @@ fuzz_target!(|data: &[u8]| {
         let base_dir = temp_dir.path();
         
         // Test path normalization with fuzzed input
+        // This should never panic - if it does, the fuzzer will catch it
         let _ = html_server::server::normalize_path(base_dir, path_str);
     }
+    
+    // Also test with raw bytes (non-UTF-8) - should handle gracefully
+    if data.len() > 4096 {
+        return;
+    }
+    
+    // Try to convert to string lossily and test
+    let path_str = String::from_utf8_lossy(data);
+    if path_str.len() > 4096 {
+        return;
+    }
+    
+    let temp_dir = match TempDir::new() {
+        Ok(dir) => dir,
+        Err(_) => return,
+    };
+    
+    let _ = html_server::server::normalize_path(temp_dir.path(), &path_str);
 });
-

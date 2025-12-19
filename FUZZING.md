@@ -4,6 +4,30 @@
 
 This project uses **cargo-fuzz** with **libFuzzer** to perform automated fuzz testing on critical security-sensitive functions. Fuzzing helps discover edge cases, potential vulnerabilities, and bugs that might not be caught by traditional testing.
 
+## ⚠️ Windows Limitations
+
+**libFuzzer on Windows has known limitations** and may fail with `STATUS_DLL_NOT_FOUND` errors. This is due to missing runtime libraries required by libFuzzer's address sanitizer.
+
+### Solutions for Windows Users
+
+1. **Use WSL2 (Recommended)**
+   ```bash
+   # In WSL2
+   cargo fuzz run fuzz_path_normalization
+   ```
+
+2. **Use Linux/Unix System**
+   - Full libFuzzer support with address sanitizer
+   - Best fuzzing experience
+
+3. **Use Property-Based Testing (Windows Alternative)**
+   - See `tests/property_tests.rs` for Windows-compatible fuzzing
+   - Uses `proptest` crate which works on all platforms
+
+4. **CI/CD Fuzzing**
+   - Run fuzzing in GitHub Actions (Linux runners)
+   - See `.github/workflows/fuzz.yml` (if configured)
+
 ## Fuzzing Targets
 
 The project includes four fuzzing targets:
@@ -53,6 +77,7 @@ Tests the complete request handling pipeline:
 3. **Windows-specific** - On Windows, you may need:
    - Visual C++ Redistributables
    - Windows SDK (for address sanitizer support)
+   - **OR use WSL2/Linux for best results**
 
 ### Toolchain Configuration
 
@@ -170,6 +195,23 @@ cargo fuzz cmin fuzz_path_normalization fuzz/corpus/other/
 
 ## Troubleshooting
 
+### "STATUS_DLL_NOT_FOUND" (Windows)
+**This is a known limitation on Windows.** Solutions:
+1. **Use WSL2** (recommended):
+   ```bash
+   wsl
+   cd /mnt/c/Users/.../Sindarin
+   cargo fuzz run fuzz_path_normalization
+   ```
+
+2. **Install Visual C++ Redistributables**:
+   - Download from: https://aka.ms/vs/17/release/vc_redist.x64.exe
+   - May not fully resolve the issue
+
+3. **Use Linux/Unix system** for full fuzzing support
+
+4. **Use property-based testing** as an alternative (see `tests/` directory)
+
 ### "the option `Z` is only accepted on the nightly compiler"
 **Solution:** Install and use the nightly toolchain:
 ```bash
@@ -180,16 +222,6 @@ The `fuzz/rust-toolchain.toml` file should automatically use nightly, but if iss
 cd fuzz
 cargo +nightly fuzz run fuzz_target_name
 ```
-
-### "STATUS_DLL_NOT_FOUND" (Windows)
-**Solution:** This error on Windows typically means missing Visual C++ runtime libraries:
-1. Install [Visual C++ Redistributables](https://aka.ms/vs/17/release/vc_redist.x64.exe)
-2. Ensure Windows SDK is installed (part of Visual Studio Build Tools)
-3. Try running from the `fuzz/` directory:
-   ```bash
-   cd fuzz
-   cargo fuzz run fuzz_path_normalization
-   ```
 
 ### "No fuzz target found"
 Ensure you're in the project root and `fuzz/` directory exists.
@@ -243,12 +275,10 @@ on: [push, pull_request]
 
 jobs:
   fuzz:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest  # Use Linux for full fuzzing support
     steps:
       - uses: actions/checkout@v2
-      - uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
+      - uses: dtolnay/rust-toolchain@nightly
       - run: cargo install cargo-fuzz --locked
       - run: cargo fuzz run fuzz_path_normalization -- -max_total_time=300
 ```
@@ -258,8 +288,8 @@ jobs:
 - [cargo-fuzz Documentation](https://github.com/rust-fuzz/cargo-fuzz)
 - [libFuzzer Documentation](https://llvm.org/docs/LibFuzzer.html)
 - [Rust Fuzz Book](https://rust-fuzz.github.io/book/)
+- [Windows Fuzzing Limitations](https://github.com/rust-fuzz/cargo-fuzz/issues/193)
 
 ---
 
-**Note:** Fuzzing is resource-intensive. Run on systems with adequate CPU and memory. For production fuzzing, consider using cloud-based fuzzing services like OSS-Fuzz.
-
+**Note:** Fuzzing is resource-intensive. Run on systems with adequate CPU and memory. For production fuzzing, consider using cloud-based fuzzing services like OSS-Fuzz. **On Windows, WSL2 or Linux is strongly recommended for the best fuzzing experience.**
