@@ -1,6 +1,6 @@
-# server
+# Sindarin
 
-![Rust](https://github.com/YOUR_USERNAME/YOUR_REPO/workflows/Rust/badge.svg)
+![Rust](https://github.com/euxaristia/Sindarin/workflows/Rust/badge.svg)
 
 **A minimal, secure HTTP server for static file serving**
 
