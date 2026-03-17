@@ -421,17 +421,18 @@ curl -L http://localhost:8080/
 
 ## COMPARISON WITH DARKHTTPD
 
-This server provides several security improvements over darkhttpd:
+This server provides several security improvements and architectural differences compared to darkhttpd:
 
-| Feature | This Server | darkhttpd |
+| Feature | This Server | darkhttpd (latest) |
 |---------|-------------|-----------|
-| Path Traversal Protection | Canonical path resolution | Basic protection |
-| DoS Protection | Multiple layers | Limited |
+| Path Traversal Protection | Canonical path resolution | String-based protection |
+| DoS Protection | Multiple layers (size/path limits) | Limited |
 | Memory Safety | Rust (memory-safe) | C (manual memory management) |
 | File Size Limits | 100 MB limit | No limit |
-| Request Size Limits | 8 KB buffer | Limited |
-| Authentication Vulnerabilities | None (no auth) | CVE-2024-23771 (timing attack) |
-| Credential Exposure | N/A | CVE-2024-23770 |
+| Request Size Limits | 8 KB buffer | Fixed buffer |
+| Authentication | Not supported (reduced surface) | Supported (patched in 1.15+) |
+| Timing Attacks | N/A | Resolved (CVE-2024-23771 fixed) |
+| Credential Security | N/A | Resolved (CVE-2024-23770 fixed) |
 
 ## DEVELOPMENT
 
