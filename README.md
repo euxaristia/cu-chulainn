@@ -472,6 +472,6 @@ euxaristia - [GitHub](https://github.com/euxaristia/cu-chulainn)
 
 ---
 
-**Version:** 0.1.0  
-**Last Updated:** 2024
+**Version:** 0.1.0
+**Last Updated:** March 17, 2026
 
