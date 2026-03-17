@@ -458,11 +458,11 @@ RUST_BACKTRACE=1 cargo run
 
 ## LICENSE
 
-[Specify your license here]
+Licensed under the GNU Affero General Public License v3.0 (AGPL-3.0). See the [LICENSE](LICENSE) file for details.
 
 ## AUTHOR
 
-[Your name/contact information]
+euxaristia - [GitHub](https://github.com/euxaristia/cu-chulainn)
 
 ## SEE ALSO
 
