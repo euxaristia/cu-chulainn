@@ -617,7 +617,7 @@ fn parse_args() -> (PathBuf, usize, u32) {
     let args: Vec<String> = std::env::args().collect();
     let program_name = args.get(0).map(|s| s.as_str()).unwrap_or("cu-chulainn");
     
-    let mut base_dir = PathBuf::from("www");
+    let mut base_dir = PathBuf::from("public");
     let mut max_connections = MAX_CONCURRENT_CONNECTIONS;
     let mut max_requests_per_minute = MAX_REQUESTS_PER_MINUTE;
     
@@ -633,10 +633,10 @@ fn parse_args() -> (PathBuf, usize, u32) {
                 println!("  -h, --help                Show this help message");
                 println!();
                 println!("Arguments:");
-                println!("  base_directory            Directory to serve (default: www/)");
+                println!("  base_directory            Directory to serve (default: public/)");
                 println!();
                 println!("Examples:");
-                println!("  {}                        # Serve www/ with default limits", program_name);
+                println!("  {}                        # Serve public/ with default limits", program_name);
                 println!("  {} /var/www/html          # Serve custom directory", program_name);
                 println!("  {} --max-connections 500  # Allow 500 concurrent connections", program_name);
                 println!("  {} --rate-limit 120       # Allow 120 requests/min per IP", program_name);

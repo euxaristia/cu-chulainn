@@ -96,13 +96,13 @@ cargo build --release
 
 ### Basic Usage
 
-Start the server with the default directory (`www/`):
+Start the server with the default directory (`public/`):
 
 ```bash
 cu-chulainn
 ```
 
-The server will listen on `http://127.0.0.1:8080` and serve files from the `www/` directory.
+The server will listen on `http://127.0.0.1:8080` and serve files from the `public/` directory.
 
 ### Custom Directory
 
@@ -148,7 +148,7 @@ cu-chulainn ./public
 cu-chulainn --max-connections 1000 --rate-limit 300 /var/www/html
 
 # Development with relaxed limits
-cu-chulainn --max-connections 50 --rate-limit 200 www/
+cu-chulainn --max-connections 50 --rate-limit 200 public/
 ```
 
 ## CONFIGURATION
@@ -156,7 +156,7 @@ cu-chulainn --max-connections 50 --rate-limit 200 www/
 ### Default Settings
 
 - **Listen Address:** `127.0.0.1:8080`
-- **Base Directory:** `www/` (or first command-line argument)
+- **Base Directory:** `public/` (or first command-line argument)
 - **Maximum Concurrent Connections:** 100 (configurable via `--max-connections`)
 - **Rate Limit:** 60 requests/minute per IP (configurable via `--rate-limit`)
 - **Maximum File Size:** 100 MB
@@ -197,7 +197,7 @@ If you need to handle more concurrent requests, you can increase the limits:
 cu-chulainn --max-connections 500 --rate-limit 200 /var/www/html
 
 # For development/testing with relaxed limits
-cu-chulainn --max-connections 50 --rate-limit 200 www/
+cu-chulainn --max-connections 50 --rate-limit 200 public/
 
 # Production with maximum capacity
 cu-chulainn --max-connections 2000 --rate-limit 500 /var/www/html
@@ -325,13 +325,8 @@ cu-chulainn/
 ├── README.md           # This file
 ├── src/
 │   └── main.rs         # Server implementation
-├── www/                # Default web root
-│   ├── index.html      # Homepage
-│   ├── about.html      # About page
-│   ├── services.html   # Services page
-│   ├── contact.html    # Contact page
-│   ├── style.css       # Stylesheet
-│   └── images/         # Image assets
+├── public/             # Default web root
+│   └── index.html      # Homepage
 └── target/             # Build artifacts
 ```
 
@@ -474,4 +469,6 @@ euxaristia - [GitHub](https://github.com/euxaristia/cu-chulainn)
 
 **Version:** 0.1.0
 **Last Updated:** March 17, 2026
+
+6
 
