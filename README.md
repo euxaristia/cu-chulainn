@@ -453,7 +453,7 @@ RUST_BACKTRACE=1 cargo run
 
 ## LICENSE
 
-Licensed under the GNU Affero General Public License v3.0 (AGPL-3.0). See the [LICENSE](LICENSE) file for details.
+This is free and unencumbered software released into the public domain. See the [LICENSE](LICENSE) file for details.
 
 ## AUTHOR
 
