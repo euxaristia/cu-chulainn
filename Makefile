@@ -1,6 +1,6 @@
 .POSIX:
-PREFIX   ?= /usr/local
-BINDIR   ?= $(PREFIX)/bin
+PREFIX   = /home/euxaristia/.local
+BINDIR   = $(PREFIX)/bin
 PONYC    ?= ponyc
 RM       ?= rm -f
 RMDIR    ?= rm -rf
