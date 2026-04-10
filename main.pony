@@ -13,6 +13,8 @@ primitive _Constants
   fun default_rate_limit(): U32 => 60
   fun default_port(): String => "8080"
   fun default_host(): String => "127.0.0.1"
+  fun rate_limit_cleanup_interval_ns(): U64 => 30_000_000_000  // 30 seconds
+  fun rate_limit_stale_threshold_ns(): I64 => 300_000_000_000  // 5 minutes idle
 
 actor RateLimiter
   let _requests: Map[String, Array[I64]] = Map[String, Array[I64]]
@@ -20,6 +22,11 @@ actor RateLimiter
 
   new create(max_requests_per_minute: USize) =>
     _max_requests_per_minute = max_requests_per_minute
+    // Start periodic cleanup of stale entries to prevent memory leaks
+    // under IP-spoofing DoS attacks
+    let notify = _RateLimiterCleanupNotify(this)
+    Timer(consume notify, _Constants.rate_limit_cleanup_interval_ns(),
+      _Constants.rate_limit_cleanup_interval_ns())
 
   be check_rate_limit(ip: String, promise: Promise[Bool]) =>
     let now = Time.now()._1
@@ -55,6 +62,36 @@ actor RateLimiter
 
   be cleanup() =>
     _requests.clear()
+
+  be cleanup_stale_entries() =>
+    let now = Time.now()._1
+    let cutoff = now - 60_000_000_000
+    try
+      let stale_ips = Array[String]
+      for (ip, times) in _requests.pairs() do
+        let filtered = Array[I64]
+        for t in times.values() do
+          if t > cutoff then filtered.push(t) end
+        end
+        if filtered.size() == 0 then
+          stale_ips.push(ip)
+        else
+          times.clear()
+          for t in filtered.values() do times.push(t) end
+        end
+      end
+      for ip in stale_ips.values() do _requests.remove(ip)? end
+    end
+
+class iso _RateLimiterCleanupNotify is TimerNotify
+  let _limiter: RateLimiter
+
+  new iso create(limiter: RateLimiter) =>
+    _limiter = limiter
+
+  fun ref apply(timer: Timer, count: U64): Bool =>
+    _limiter.cleanup_stale_entries()
+    true
 
 actor ConnectionCounter
   var _count: USize = 0
@@ -471,6 +508,16 @@ class iso ClientHandler is TCPConnectionNotify
     let auth = FileAuth(_env.root)
     let fp = FilePath(auth, file_path)
 
+    // Canonicalize and verify: resolve symlinks and ensure path is still
+    // inside base_dir to prevent symlink-based path traversal
+    let canonical_file: String val = fp.path
+    let base_fp = FilePath(auth, _base_dir)
+    let canonical_base: String val = base_fp.path
+    if not _StartsWith(canonical_file, canonical_base) then
+      _send_error(conn, 403, "Forbidden", "403 Forbidden")
+      return
+    end
+
     if not fp.exists() then
       _send_error(conn, 404, "Not Found",
         "<html><body><h1>404 Not Found</h1><p>The requested resource was not found.</p></body></html>")
@@ -523,7 +570,7 @@ class iso ClientHandler is TCPConnectionNotify
       file.dispose()
 
       let mime = _MimeType(file_path)
-      var response = recover String(256) end
+      var response = recover String(256 + content_size) end
       response.append("HTTP/1.1 200 OK\r\n")
       response.append("Content-Type: ")
       response.append(mime)
@@ -537,12 +584,10 @@ class iso ClientHandler is TCPConnectionNotify
       response.append("Referrer-Policy: strict-origin-when-cross-origin\r\n")
       response.append("Connection: close\r\n\r\n")
 
-      if method == "HEAD" then
-        conn.write(consume response)
-      else
-        conn.write(consume response)
-        conn.write(consume content)
+      if method != "HEAD" then
+        response.append(consume content)
       end
+      conn.write(consume response)
     else
       _send_error(conn, 500, "Internal Server Error",
         "500 Internal Server Error")
@@ -654,20 +699,22 @@ class iso ClientHandler is TCPConnectionNotify
     html.append("</table></body></html>")
 
     let html_len = html.size()
-    var response = recover String(256) end
+    var response = recover String(256 + html_len) end
     response.append("HTTP/1.1 200 OK\r\n")
     response.append("Content-Type: text/html; charset=UTF-8\r\n")
     response.append("Content-Length: ")
     response.append(html_len.string())
     response.append("\r\n")
+    response.append("X-Content-Type-Options: nosniff\r\n")
+    response.append("X-Frame-Options: DENY\r\n")
+    response.append("X-XSS-Protection: 1; mode=block\r\n")
+    response.append("Referrer-Policy: strict-origin-when-cross-origin\r\n")
     response.append("Connection: close\r\n\r\n")
 
-    if method == "HEAD" then
-      conn.write(consume response)
-    else
-      conn.write(consume response)
-      conn.write(consume html)
+    if method != "HEAD" then
+      response.append(consume html)
     end
+    conn.write(consume response)
 
   fun _send_error(conn: TCPConnection ref, code: U16,
     status_text: String val, body: String val) =>
@@ -678,7 +725,7 @@ class iso ClientHandler is TCPConnectionNotify
       "text/plain"
     end
     let body_len = body.size()
-    var response = recover String(256) end
+    var response = recover String(256 + body_len) end
     response.append("HTTP/1.1 ")
     response.append(code.string())
     response.append(" ")
@@ -691,10 +738,8 @@ class iso ClientHandler is TCPConnectionNotify
     response.append(body_len.string())
     response.append("\r\n")
     response.append("Connection: close\r\n\r\n")
+    response.append(body)
     conn.write(consume response)
-    conn.write(body)
-    // Don't call conn.close() here - the Connection: close header
-    // will handle closure. conn.close() can race with pending writes.
 
   fun ref closed(conn: TCPConnection ref) =>
     _connection_counter.decrement()
