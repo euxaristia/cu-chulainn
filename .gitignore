@@ -1,23 +1,6 @@
-# Rust build artifacts
-target/
-**/*.rs.bk
-**/*.pdb
+# Pony build artifacts
+*.o
+cu-chulainn
 
-# Fuzz artifacts and build outputs
-fuzz/artifacts/
-fuzz/corpus/
-fuzz/target/
-fuzz/coverage/
-fuzz/**/target/
-fuzz/**/incremental/
-fuzz/**/build/
-fuzz/**/deps/
-fuzz/**/examples/
-fuzz/**/*.exe
-fuzz/**/*.pdb
-fuzz/**/*.d
-fuzz/**/*.rlib
-fuzz/**/*.rmeta
-fuzz/**/Cargo.lock
-# Ignore all files in fuzz target directories recursively
-fuzz/target/**/*
+# Served directory (created by make)
+public/
