@@ -63,8 +63,8 @@ The server implements a darkhttpd-style architecture with enhanced security prot
 
 ### Prerequisites
 
-- Rust toolchain (1.70.0 or later)
-- Cargo package manager
+- [Pony compiler](https://ponylang.io/) (ponyc)
+- Clang or GCC
 
 ### Building from Source
 
@@ -74,22 +74,17 @@ git clone https://github.com/euxaristia/cu-chulainn
 cd cu-chulainn
 
 # Build the project
-cargo build --release
+make
 
 # The binary will be available at:
-# target/release/cu-chulainn.exe (Windows)
-# target/release/cu-chulainn (Unix-like)
+# ./cu-chulainn
 ```
 
 ### Quick Start
 
 ```bash
-# Build and run in one command
-cargo run
-
-# Or build release version
-cargo build --release
-./target/release/cu-chulainn
+# Build and run in one step
+make && ./cu-chulainn
 ```
 
 ## USAGE
@@ -320,14 +315,16 @@ All user input is validated and sanitized:
 
 ```
 cu-chulainn/
-├── Cargo.toml          # Project configuration
-├── Cargo.lock          # Dependency lock file
+├── Makefile            # Build configuration (ponyc)
 ├── README.md           # This file
 ├── src/
-│   └── main.rs         # Server implementation
-├── public/             # Default web root
-│   └── index.html      # Homepage
-└── target/             # Build artifacts
+│   ├── main.pony       # Main actor, CLI parsing, shutdown handler
+│   ├── constants.pony  # Configuration constants (limits, defaults)
+│   ├── utils.pony      # String helpers, MIME detection, URL decode, path normalization
+│   ├── rate_limiter.pony # RateLimiter, ConnectionCounter, shutdown drain
+│   └── server.pony     # Server, ClientHandler, request/response handling
+└── public/             # Default web root
+    └── index.html      # Homepage
 ```
 
 ## EXAMPLES
@@ -336,11 +333,10 @@ cu-chulainn/
 
 ```bash
 # Start server
-server
+./cu-chulainn
 
 # Access files
 curl http://localhost:8080/index.html
-curl http://localhost:8080/style.css
 ```
 
 ### Example 2: Directory Listing
@@ -356,7 +352,7 @@ curl http://localhost:8080/images/
 
 ```bash
 # Serve files from a different directory
-server /var/www/html
+./cu-chulainn /var/www/html
 
 # Files are now served from /var/www/html
 ```
@@ -420,9 +416,9 @@ This server provides several security improvements and architectural differences
 
 | Feature | This Server | darkhttpd (latest) |
 |---------|-------------|-----------|
-| Path Traversal Protection | Canonical path resolution | String-based protection |
-| DoS Protection | Multiple layers (size/path limits) | Limited |
-| Memory Safety | Rust (memory-safe) | C (manual memory management) |
+| Path Traversal Protection | Canonical path resolution + symlink verification | String-based protection |
+| DoS Protection | Multiple layers (size/path limits, rate limiting) | Limited |
+| Memory Safety | Pony (capability-safe, no data races) | C (manual memory management) |
 | File Size Limits | 100 MB limit | No limit |
 | Request Size Limits | 8 KB buffer | Fixed buffer |
 | Authentication | Not supported (reduced surface) | Supported (patched in 1.15+) |
@@ -434,26 +430,32 @@ This server provides several security improvements and architectural differences
 ### Building for Development
 
 ```bash
-# Debug build
-cargo build
+# Build
+make
 
-# Run with debug output
-RUST_BACKTRACE=1 cargo run
+# Run
+./cu-chulainn
+
+# Run with a custom directory
+./cu-chulainn --max-connections 50 --rate-limit 120 ./public
+
+# Clean build artifacts
+make clean
 ```
 
 ### Code Structure
 
-- **`main()`:** Server initialization and connection handling
-- **`handle_client()`:** Request processing and response generation
-- **`normalize_path()`:** Path validation and traversal prevention
-- **`parse_request()`:** HTTP request parsing
-- **`send_response()`:** HTTP response formatting and transmission
-- **`generate_directory_listing()`:** HTML directory listing generation
-- **`get_mime_type()`:** MIME type detection based on file extension
+The server is organized into Pony modules:
+
+- **`src/main.pony`** — `Main` actor for startup and CLI parsing; `ShutdownHandler` for SIGINT/SIGTERM
+- **`src/constants.pony`** — `_Constants` with all configurable limits and defaults
+- **`src/utils.pony`** — Helper primitives: `_MimeType`, `_HtmlEscape`, `_FormatSize`, `_UrlDecode`, `_StartsWith`, `_ParseUSize`, `_EndsWith`, `_NormalizePath`
+- **`src/rate_limiter.pony`** — `RateLimiter` (per-IP sliding window with periodic cleanup), `ConnectionCounter`, `_ShutdownDrain` (graceful connection drain on exit)
+- **`src/server.pony`** — `Server` (TCP listener), `ServerListenNotify`, `ClientHandler` (request parsing, validation, file serving, directory listings, error responses)
 
 ## LICENSE
 
-This is free and unencumbered software released into the public domain. See the [LICENSE](LICENSE) file for details.
+Licensed under the GNU Affero General Public License v3.0 (AGPL-3.0). See the [LICENSE](LICENSE) file for details.
 
 ## AUTHOR
 
@@ -461,9 +463,9 @@ euxaristia - [GitHub](https://github.com/euxaristia/cu-chulainn)
 
 ## SEE ALSO
 
-- [darkhttpd](https://unix4lyfe.org/darkhttpd/) - The original minimal HTTP server
-- [Rust Documentation](https://doc.rust-lang.org/) - Rust programming language
-- [HTTP/1.1 Specification](https://tools.ietf.org/html/rfc7231) - HTTP protocol specification
+- [Pony Language Documentation](https://tutorial.ponylang.io/) — Pony programming language
+- [darkhttpd](https://unix4lyfe.org/darkhttpd/) — The original minimal HTTP server
+- [HTTP/1.1 Specification](https://tools.ietf.org/html/rfc7231) — HTTP protocol specification
 
 ---
 
