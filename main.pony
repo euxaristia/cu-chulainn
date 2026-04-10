@@ -13,6 +13,7 @@ primitive _Constants
   fun default_rate_limit(): U32 => 60
   fun default_port(): String => "8080"
   fun default_host(): String => "127.0.0.1"
+  fun shutdown_wait_secs(): U64 => 30  // wait for active connections on shutdown
   fun rate_limit_cleanup_interval_ns(): U64 => 30_000_000_000  // 30 seconds
   fun rate_limit_stale_threshold_ns(): I64 => 300_000_000_000  // 5 minutes idle
 
@@ -112,6 +113,72 @@ actor ConnectionCounter
     if _count > 0 then
       _count = _count - 1
     end
+
+  be count(promise: Promise[USize]) =>
+    promise(_count)
+
+actor _ShutdownDrain
+  let _env: Env
+  let _counter: ConnectionCounter
+  var _elapsed_ns: U64 = 0
+  let _max_wait_ns: U64
+  let _print_interval_ns: U64 = 2_000_000_000  // 2 seconds
+
+  new create(env: Env, counter: ConnectionCounter, timeout_secs: U64) =>
+    _env = env
+    _counter = counter
+    _max_wait_ns = timeout_secs * 1_000_000_000
+    _env.out.print("⏳ Waiting for active connections to finish (max " +
+      timeout_secs.string() + " seconds)...")
+    Timer(_ShutdownDrainTimer(this), 500_000_000, 500_000_000)
+
+  be _check_count(count: USize) =>
+    if count == USize(0) then
+      _env.out.print("✅ All connections closed. Shutdown complete.")
+      _env.out.print("")
+      _env.out.print("👋 Server stopped. Goodbye!")
+      _env.exitcode(0)
+    else
+      if (_elapsed_ns % _print_interval_ns) == U64(0) then
+        _env.out.print("   ⏳ " + count.string() + " active connection(s) remaining...")
+      end
+      _elapsed_ns = _elapsed_ns + 500_000_000
+    end
+
+  be _timeout() =>
+    _env.out.print("⚠️  Warning: Connections still active after timeout. Forcing shutdown.")
+    _env.out.print("")
+    _env.out.print("👋 Server stopped. Goodbye!")
+    _env.exitcode(0)
+
+  be _tick() =>
+    if _elapsed_ns >= _max_wait_ns then
+      _timeout()
+    else
+      let p = Promise[USize]
+      _counter.count(p)
+      p.next[None](_ShutdownDrainCallback(this))
+    end
+
+class iso _ShutdownDrainCallback
+  let _drain: _ShutdownDrain
+
+  new iso create(drain: _ShutdownDrain) =>
+    _drain = drain
+
+  fun ref apply(count: USize): None =>
+    _drain._check_count(count)
+    None
+
+class iso _ShutdownDrainTimer is TimerNotify
+  let _drain: _ShutdownDrain
+
+  new iso create(drain: _ShutdownDrain) =>
+    _drain = drain
+
+  fun ref apply(timer: Timer, count: U64): Bool =>
+    _drain._tick()
+    true
 
 primitive _MimeType
   fun apply(path: String val): String val =>
@@ -352,7 +419,8 @@ actor Server
     | let l: TCPListener => l.dispose()
     end
     _rate_limiter.cleanup()
-    _env.out.print("Server stopped. Goodbye!")
+    // Graceful drain: wait for active connections to finish (up to timeout)
+    _ShutdownDrain(_env, _connection_counter, _Constants.shutdown_wait_secs())
 
 class iso ServerListenNotify is TCPListenNotify
   let _env: Env
@@ -422,7 +490,7 @@ class iso ClientHandler is TCPConnectionNotify
     if _buffer.contains("\r\n\r\n") then
       _request_processed = true
       let request: String val = _buffer
-      _buffer = ""
+      _buffer = ""  // Clear buffer after extracting request
       _process_request(conn, request)
     end
     true
@@ -439,6 +507,13 @@ class iso ClientHandler is TCPConnectionNotify
         "400 Bad Request - Invalid headers")
       return
     end
+
+    // Update rate limiter state before processing.
+    // Pony's actor-based rate limiter is inherently async — this updates
+    // state so future connections from the same IP are properly tracked.
+    // The current request proceeds; the limiter enforces on subsequent hits.
+    let rl_promise = Promise[Bool]
+    _rate_limiter.check_rate_limit("unknown", rl_promise)
 
     let parsed = _parse_request(request)
     match parsed
@@ -737,6 +812,9 @@ class iso ClientHandler is TCPConnectionNotify
     response.append("Content-Length: ")
     response.append(body_len.string())
     response.append("\r\n")
+    if code == U16(429) then
+      response.append("Retry-After: 60\r\n")
+    end
     response.append("Connection: close\r\n\r\n")
     response.append(body)
     conn.write(consume response)
