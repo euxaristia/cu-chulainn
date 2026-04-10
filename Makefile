@@ -11,8 +11,8 @@ BIN      = cu-chulainn
 
 all: $(BIN)
 
-$(BIN): main.pony
-	$(PONYC) --bin-name $(BIN) --pic -p /usr/lib/gcc/x86_64-pc-linux-gnu/15.2.1 -o . .
+$(BIN):
+	$(PONYC) --bin-name $(BIN) --pic -p /usr/lib/gcc/x86_64-pc-linux-gnu/15.2.1 -o . src/
 
 public/index.html: public
 	echo '<h1>It works!</h1>' > $@
